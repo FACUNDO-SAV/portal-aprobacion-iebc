@@ -153,11 +153,13 @@ function pantallaIngreso(msg) {
         <input id="in-pass" type="password" required autocomplete="current-password"></div>
       <button class="btn prim" type="submit" style="background:#fff;color:var(--tinta);border-color:#fff">Entrar</button>
     </form>
-    <details><summary>No tengo contraseña: enviame un link por mail</summary>
-      <form data-f="otp" style="display:flex;flex-direction:column;gap:10px;margin-top:12px">
-        <label for="otp-mail" style="color:#D3DAD6">Mail de la empresa</label>
-        <input id="otp-mail" type="email" required autocomplete="email" placeholder="nombre@${esc(C.dominioEmpresa)}">
-        <button class="btn" type="submit">Enviarme el link</button>
+    <details><summary>No tengo contraseña: crear cuenta</summary>
+      <form data-f="registro" style="display:flex;flex-direction:column;gap:10px;margin-top:12px">
+        <label for="reg-mail" style="color:#D3DAD6">Mail de la empresa</label>
+        <input id="reg-mail" type="email" required autocomplete="email" placeholder="nombre@${esc(C.dominioEmpresa)}">
+        <label for="reg-pass" style="color:#D3DAD6">Elegí una contraseña</label>
+        <input id="reg-pass" type="password" required autocomplete="new-password" minlength="6" placeholder="Mínimo 6 caracteres">
+        <button class="btn" type="submit">Crear cuenta</button>
       </form></details>
     <p style="font-size:13px">Solo vas a ver las facturas de las obras que tenés asignadas.</p>
   </div></div>`;
@@ -586,10 +588,14 @@ app.addEventListener("submit", async (e) => {
     const { error } = await sb.auth.signInWithPassword({ email, password });
     return error ? pantallaIngreso("Mail o contraseña incorrectos.") : null;
   }
-  if (f.dataset.f === "otp") {
-    const email = document.getElementById("otp-mail").value.trim().toLowerCase();
-    const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: location.origin + location.pathname } });
-    return error ? avisar(error.message, true) : avisar("Te mandamos un link. Abrilo desde este mismo dispositivo.");
+  if (f.dataset.f === "registro") {
+    const email = document.getElementById("reg-mail").value.trim().toLowerCase();
+    const password = document.getElementById("reg-pass").value;
+    if (password.length < 6) return avisar("La contraseña tiene que tener al menos 6 caracteres.", true);
+    const { data: su, error } = await sb.auth.signUp({ email, password, options: { data: { email } } });
+    if (error) return avisar(error.message, true);
+    if (su?.user?.identities?.length === 0) return avisar("Ya existe una cuenta con ese mail. Usá el formulario de arriba para entrar.", true);
+    return null;
   }
   if (f.dataset.f === "buscar") {
     const t = String(v.texto ?? "").trim();
