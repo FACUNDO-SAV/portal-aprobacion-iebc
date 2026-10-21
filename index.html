@@ -86,6 +86,26 @@ textarea{resize:vertical;min-height:72px}
 .ingreso input{width:100%;background:#22302B;border-color:#4A5550;color:#fff}
 .ingreso details summary{cursor:pointer;color:#B9C2BD;font-size:14px}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.adjuntos{display:flex;flex-direction:column;gap:10px}
+.adjuntos-titulo{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.adjuntos-lista{display:flex;flex-wrap:wrap;gap:10px}
+.adjunto{position:relative;border:1px solid var(--linea);border-radius:8px;overflow:hidden;width:140px;cursor:pointer;background:var(--papel);transition:box-shadow .15s}
+.adjunto:hover{box-shadow:0 2px 8px rgba(23,32,29,.12)}
+.adjunto-preview{width:140px;height:100px;display:flex;align-items:center;justify-content:center;background:#F7F8F6;overflow:hidden}
+.adjunto-preview img{max-width:100%;max-height:100%;object-fit:contain}
+.adjunto-preview .icono-pdf{font-size:36px;color:var(--rojo);font-weight:700}
+.adjunto-preview .icono-doc{font-size:36px;color:var(--azul-t);font-weight:700}
+.adjunto-nombre{padding:6px 8px;font-size:12px;color:var(--tinta-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.adjunto-borrar{position:absolute;top:4px;right:4px;background:rgba(0,0,0,.55);color:#fff;border:0;border-radius:50%;width:22px;height:22px;font-size:14px;cursor:pointer;display:none;align-items:center;justify-content:center;line-height:1}
+.adjunto:hover .adjunto-borrar{display:flex}
+.subir-adjunto{display:flex;align-items:center;gap:8px}
+.subir-adjunto input[type=file]{display:none}
+.subir-adjunto label{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border:1px dashed #B9C0BB;border-radius:6px;cursor:pointer;font-size:13px;color:var(--tinta-2);min-height:40px;transition:border-color .15s}
+.subir-adjunto label:hover{border-color:var(--verde);color:var(--verde)}
+.modal-preview{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:20;display:flex;align-items:center;justify-content:center;padding:20px}
+.modal-preview-in{background:#fff;border-radius:10px;max-width:min(900px,95vw);max-height:90vh;overflow:auto;position:relative}
+.modal-preview-in iframe,.modal-preview-in img{display:block;max-width:100%;max-height:80vh}
+.modal-preview-cerrar{position:absolute;top:8px;right:8px;background:var(--tinta);color:#fff;border:0;border-radius:50%;width:32px;height:32px;font-size:18px;cursor:pointer;z-index:1}
 .panel{background:var(--papel);border:1px solid var(--linea);border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:14px;margin-bottom:20px}
 @media (prefers-reduced-motion:no-preference){.toast{animation:sube .2s ease-out}@keyframes sube{from{transform:translate(-50%,8px);opacity:0}}}
 </style>
@@ -256,6 +276,37 @@ function resumen(f, extra = "") {
   </summary>`;
 }
 
+async function renderAdjuntos(fid) {
+  const { data: adj } = await sb.from("factura_adjuntos").select("*").eq("factura_id", fid).order("subido_en");
+  const archivos = await Promise.all((adj ?? []).map(async (a) => {
+    const esPdf = (a.tipo ?? "").includes("pdf");
+    const esImg = (a.tipo ?? "").startsWith("image/");
+    let thumb = "";
+    if (esImg) {
+      const { data: url } = await sb.storage.from("factura-adjuntos").createSignedUrl(a.storage_path, 300);
+      thumb = url?.signedUrl ? `<img src="${esc(url.signedUrl)}" alt="${esc(a.nombre)}">` : '<span class="icono-doc">IMG</span>';
+    } else if (esPdf) { thumb = '<span class="icono-pdf">PDF</span>'; }
+    else { thumb = '<span class="icono-doc">DOC</span>'; }
+    const tamTxt = a.tamano ? (a.tamano > 1048576 ? (a.tamano / 1048576).toFixed(1) + " MB" : Math.round(a.tamano / 1024) + " KB") : "";
+    return `<div class="adjunto" data-a="preview-adjunto" data-path="${esc(a.storage_path)}" data-tipo="${esc(a.tipo)}" data-nombre="${esc(a.nombre)}" title="${esc(a.nombre)}${tamTxt ? " \u00b7 " + tamTxt : ""}">
+      <div class="adjunto-preview">${thumb}</div>
+      <div class="adjunto-nombre">${esc(a.nombre)}</div>
+      ${S.conta ? `<button class="adjunto-borrar" data-a="borrar-adjunto" data-adj-id="${esc(a.id)}" data-path="${esc(a.storage_path)}" data-fid="${esc(fid)}" title="Eliminar">&times;</button>` : ""}
+    </div>`;
+  }));
+  return `<div class="adjuntos" id="adj-${fid}">
+    <div class="adjuntos-titulo"><h2 style="font-size:15px;margin:0">Adjuntos${(adj ?? []).length ? ` (${adj.length})` : ""}</h2>
+      <div class="subir-adjunto"><label for="file-${fid}">+ Adjuntar archivo<input type="file" id="file-${fid}" data-a="subir-adjunto" data-fid="${fid}" multiple accept=".pdf,.jpg,.jpeg,.png,.webp,.gif,.xlsx,.docx"></label></div>
+    </div>
+    ${archivos.length ? `<div class="adjuntos-lista">${archivos.join("")}</div>` : `<p class="meta" style="margin:0">Sin adjuntos. Pod\u00e9s subir la factura en PDF, p\u00f3lizas, remitos o cualquier comprobante.</p>`}
+  </div>`;
+}
+
+async function recargarAdjuntos(fid) {
+  const zona = document.getElementById("adj-" + fid);
+  if (zona) zona.outerHTML = await renderAdjuntos(fid);
+}
+
 async function detalleBase(f) {
   const [{ data: desg }, { data: hist }] = await Promise.all([
     sb.from("facturas_iva_desglose").select("*").eq("factura_id", f.id),
@@ -264,6 +315,7 @@ async function detalleBase(f) {
   const filas = (desg ?? []).map((x) => `<tr><td>${esc(x.alicuota)}</td><td class="n">${pesos(x.neto)}</td><td class="n">${pesos(x.iva)}</td></tr>`).join("");
   const extras = [["Percepciones", f.percepciones], ["No gravado", f.no_gravado], ["Exento", f.exento]]
     .filter(([, v]) => Number(v) > 0).map(([t, v]) => `<tr><td>${t}</td><td class="n" colspan="2">${pesos(v)}</td></tr>`).join("");
+  const adjuntosHtml = await renderAdjuntos(f.id);
   return `
   <div style="display:flex;flex-direction:column;gap:14px">
     <dl class="datos">
@@ -271,7 +323,7 @@ async function detalleBase(f) {
       <div><dt>Vencimiento</dt><dd>${fecha(f.fecha_vencimiento)}</dd></div>
     </dl>
     ${f.nota_completa ? `<div class="meta" style="white-space:pre-line">${esc(f.nota_completa)}</div>` : ""}
-    ${f.onedrive_url ? `<a class="btn" style="display:flex;align-items:center;justify-content:center;text-decoration:none;color:var(--tinta)" href="${esc(f.onedrive_url)}" target="_blank" rel="noopener">Ver PDF de la factura</a>` : `<div class="aviso ambar">Sin link al PDF</div>`}
+    ${adjuntosHtml}
     ${filas || extras ? `<div class="tabla"><table><thead><tr><th>Alícuota</th><th class="n">Neto</th><th class="n">IVA</th></tr></thead><tbody>${filas}${extras}</tbody></table></div>` : ""}
   </div>
   <div style="display:flex;flex-direction:column;gap:14px" data-zona="acciones">
@@ -523,9 +575,63 @@ const comentario = (id) => document.getElementById("c-" + id)?.value.trim() ?? "
 
 app.addEventListener("toggle", (e) => { if (e.target.matches("details.fac") && e.target.open) abrir(e.target); }, true);
 
+// Handler para subir adjuntos
+app.addEventListener("change", async (e) => {
+  const inp = e.target.closest("[data-a='subir-adjunto']");
+  if (!inp) return;
+  const fid = inp.dataset.fid;
+  const files = inp.files;
+  if (!files.length) return;
+  inp.disabled = true;
+  try {
+    for (const file of files) {
+      const ext = file.name.split(".").pop().toLowerCase();
+      const path = `${fid}/${Date.now()}-${Math.random().toString(36).slice(2,8)}.${ext}`;
+      const { error: upErr } = await sb.storage.from("factura-adjuntos").upload(path, file, { contentType: file.type });
+      if (upErr) { avisar("Error al subir " + file.name + ": " + upErr.message, true); continue; }
+      const { error: dbErr } = await sb.from("factura_adjuntos").insert({
+        factura_id: fid, nombre: file.name, storage_path: path, tipo: file.type, tamano: file.size, subido_por: S.email
+      });
+      if (dbErr) { avisar("Error al registrar " + file.name + ": " + dbErr.message, true); continue; }
+    }
+    avisar("Adjunto" + (files.length > 1 ? "s" : "") + " subido" + (files.length > 1 ? "s" : ""));
+    await recargarAdjuntos(fid);
+  } catch (err) { avisar(err.message, true); }
+  inp.value = ""; inp.disabled = false;
+});
+
+// Modal de previsualización
+function cerrarPreview() { document.getElementById("modal-preview")?.remove(); }
+
 app.addEventListener("click", async (e) => {
   const b = e.target.closest("[data-a]");
   if (!b) return;
+  const a = b.dataset.a;
+
+  if (a === "preview-adjunto") {
+    const path = b.dataset.path, tipo = b.dataset.tipo ?? "", nombre = b.dataset.nombre ?? "Archivo";
+    const { data } = await sb.storage.from("factura-adjuntos").createSignedUrl(path, 600);
+    if (!data?.signedUrl) return avisar("No se pudo abrir el archivo", true);
+    const esPdf = tipo.includes("pdf"), esImg = tipo.startsWith("image/");
+    const contenido = esPdf ? `<iframe src="${data.signedUrl}" style="width:min(860px,90vw);height:80vh" title="${esc(nombre)}"></iframe>`
+      : esImg ? `<img src="${data.signedUrl}" alt="${esc(nombre)}" style="max-width:min(860px,90vw)">`
+      : `<div style="padding:40px;text-align:center"><p>${esc(nombre)}</p><a href="${data.signedUrl}" target="_blank" class="btn prim" style="text-decoration:none">Descargar</a></div>`;
+    cerrarPreview();
+    document.body.insertAdjacentHTML("beforeend", `<div class="modal-preview" id="modal-preview" data-a="cerrar-preview">
+      <div class="modal-preview-in"><button class="modal-preview-cerrar" data-a="cerrar-preview">&times;</button>${contenido}</div></div>`);
+    return;
+  }
+  if (a === "cerrar-preview") return cerrarPreview();
+  if (a === "borrar-adjunto") {
+    e.stopPropagation();
+    if (!confirm("¿Eliminar este adjunto?")) return;
+    const adjId = b.dataset.adjId, path = b.dataset.path, fid = b.dataset.fid;
+    await sb.storage.from("factura-adjuntos").remove([path]);
+    await sb.from("factura_adjuntos").delete().eq("id", adjId);
+    avisar("Adjunto eliminado");
+    await recargarAdjuntos(fid);
+    return;
+  }
   const a = b.dataset.a, id = b.dataset.id;
   if (a === "salir") { await sb.auth.signOut(); S.vista = null; return pantallaIngreso(); }
   if (a === "vista") { S.vista = b.dataset.v; return mostrar(); }
