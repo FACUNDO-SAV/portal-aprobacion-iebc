@@ -190,7 +190,9 @@ async function iniciar() {
 function vistas() {
   const v = [];
   if (S.uops.length) v.push(["aprobar", "Para aprobar"]);
-  if (S.conta) v.push(["asignar", "Asignar UOP"], ["excepciones", "Revisión"], ["errores", "Errores de envío"], ["circuito", "Todo el circuito"], ["resultados", "Resultados"], ["accesos", "Obras y accesos"]);
+  if (S.conta) v.push(["asignar", "Asignar UOP"]);
+  if (S.uops.length || S.conta) v.push(["excepciones", "Revisión"], ["circuito", "Todo el circuito"]);
+  if (S.conta) v.push(["errores", "Errores de envío"], ["resultados", "Resultados"], ["accesos", "Obras y accesos"]);
   if (S.uops.length) v.push(["historial", "Historial"]);
   return v;
 }
