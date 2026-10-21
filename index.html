@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Portal de Facturas · IEB Construcciones</title>
+<title>Portal de Facturas · Mesopotamico S.A.</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap">
 <style>
@@ -163,7 +163,7 @@ async function procesarCola() {
 function pantallaIngreso(msg) {
   app.innerHTML = `
   <div class="ingreso"><div class="ingreso-in">
-    <div><p style="font-size:14px;color:#B9C2BD">IEB Construcciones</p><h1>Portal de Facturas</h1>
+    <div><p style="font-size:14px;color:#B9C2BD">Mesopotamico S.A.</p><h1>Portal de Facturas</h1>
     <p>Aprobá las facturas de tus obras. Entrá con tu cuenta de la empresa.</p></div>
     ${msg ? `<div class="aviso rojo">${esc(msg)}</div>` : ""}
     <form data-f="pass" style="display:flex;flex-direction:column;gap:14px">
@@ -222,9 +222,9 @@ function marco(contenido, cuentas = {}) {
     `<button data-a="vista" data-v="${k}" ${S.vista === k ? 'aria-current="page"' : ""}>${t}${cuentas[k] ? `<span class="n">${cuentas[k]}</span>` : ""}</button>`).join("");
   app.innerHTML = `
   <header class="barra"><div class="barra-in">
-    <div class="marca">Portal de Facturas <span>· IEB</span></div>
+    <div class="marca">Portal de Facturas <span>· Mesopotamico</span></div>
     <nav class="pestanas" aria-label="Secciones">${tabs}</nav>
-    <div class="usuario"><span>${esc(S.nombre)}${S.conta ? " · Contaduría" : ""}</span><button data-a="salir">Salir</button></div>
+    <div class="usuario"><span>${esc(S.nombre)}${S.conta ? " · Contaduría" : ""}</span><button data-a="cambiar-pass">Contraseña</button><button data-a="salir">Salir</button></div>
   </div></header>
   <main>${contenido}</main>`;
 }
@@ -274,6 +274,65 @@ function resumen(f, extra = "") {
     <div class="monto">${pesos(f.monto, f.moneda)}</div>
     <div>${chip(f.flujo)} ${extra}</div><div class="meta" style="text-align:right">${f.uop_asignada ? obraNombre(f.uop_asignada) : ""}</div>
   </summary>`;
+}
+
+async function generarComprobanteAprobacion(facturaId) {
+  const { data: f } = await sb.from("facturas").select("*").eq("id", facturaId).single();
+  if (!f) return;
+  const { data: hist } = await sb.from("aprobaciones").select("*").eq("factura_id", facturaId).order("creado_en");
+  const ahora = new Date();
+  const fechaStr = ahora.toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short" });
+  const lineas = (hist ?? []).map((h) =>
+    `<tr><td>${new Date(h.creado_en).toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short" })}</td><td>${ACCIONES[h.accion] ?? h.accion}</td><td>${h.actor_email ?? "Portal"}</td><td>${h.uop ? "UOP " + h.uop : ""}</td><td>${h.comentario ?? ""}</td></tr>`
+  ).join("");
+  const html = `<!doctype html><html><head><meta charset="utf-8"><style>
+    body{font:13px/1.5 Arial,sans-serif;margin:40px;color:#222}
+    h1{font-size:18px;margin:0 0 4px} h2{font-size:14px;color:#555;margin:0 0 20px}
+    table{width:100%;border-collapse:collapse;margin:16px 0} th,td{border:1px solid #ccc;padding:6px 10px;text-align:left;font-size:12px}
+    th{background:#f0f0f0;font-weight:600} .meta{color:#666;font-size:12px}
+    .firma{margin-top:40px;display:flex;gap:60px} .firma div{border-top:1px solid #222;padding-top:8px;min-width:200px;font-size:12px}
+    .sello{margin-top:20px;padding:12px;border:2px solid #0E5A52;border-radius:8px;text-align:center;color:#0E5A52;font-weight:700;font-size:15px}
+  </style></head><body>
+    <h1>Comprobante de Aprobaci\u00f3n de Factura</h1>
+    <h2>Mesopotamico S.A. \u2014 Portal de Facturas</h2>
+    <table><tbody>
+      <tr><th>Proveedor</th><td>${f.proveedor_nombre}</td><th>CUIT</th><td>${f.cuit ?? "\u2014"}</td></tr>
+      <tr><th>Comprobante</th><td>${f.tipo_comprobante} ${f.numero_comprobante}</td><th>Emisi\u00f3n</th><td>${f.fecha_emision}</td></tr>
+      <tr><th>Moneda</th><td>${f.moneda ?? "ARS"}</td><th>Importe total</th><td>$ ${Number(f.monto).toLocaleString("es-AR", { minimumFractionDigits: 2 })}</td></tr>
+      <tr><th>UOP asignada</th><td>${f.uop_asignada ?? "\u2014"}</td><th>Estado</th><td>${(ESTADOS[f.flujo] ?? [f.flujo])[0]}</td></tr>
+      ${f.nota_completa ? `<tr><th>Detalle</th><td colspan="3">${f.nota_completa}</td></tr>` : ""}
+    </tbody></table>
+    <h2 style="margin-top:24px">Historial de aprobaci\u00f3n</h2>
+    <table><thead><tr><th>Fecha</th><th>Acci\u00f3n</th><th>Usuario</th><th>Obra</th><th>Comentario</th></tr></thead><tbody>${lineas}</tbody></table>
+    <div class="sello">APROBADA</div>
+    <p class="meta" style="margin-top:24px">Generado autom\u00e1ticamente por el Portal de Facturas el ${fechaStr}. ID: ${facturaId.slice(0, 8)}</p>
+  </body></html>`;
+
+  // Convertir HTML a PDF usando el navegador
+  const blob = await new Promise((resolve) => {
+    const iframe = document.createElement("iframe");
+    iframe.style.cssText = "position:fixed;left:-9999px;width:800px;height:1100px";
+    document.body.appendChild(iframe);
+    iframe.contentDocument.open();
+    iframe.contentDocument.write(html);
+    iframe.contentDocument.close();
+    iframe.onload = () => {
+      // No podemos generar PDF real desde el navegador sin una librería.
+      // Guardamos como HTML que se puede imprimir a PDF.
+      const htmlBlob = new Blob([html], { type: "text/html" });
+      document.body.removeChild(iframe);
+      resolve(htmlBlob);
+    };
+    setTimeout(() => { try { document.body.removeChild(iframe); } catch {} resolve(new Blob([html], { type: "text/html" })); }, 3000);
+  });
+
+  const nombre = `Aprobacion_${f.tipo_comprobante?.replace(/\s/g, "")}_${f.numero_comprobante?.replace(/\D/g, "-")}.html`;
+  const path = `${facturaId}/aprobacion-${Date.now()}.html`;
+  const { error: upErr } = await sb.storage.from("factura-adjuntos").upload(path, blob, { contentType: "text/html" });
+  if (upErr) { console.warn("Error subiendo comprobante:", upErr); return; }
+  await sb.from("factura_adjuntos").insert({
+    factura_id: facturaId, nombre, storage_path: path, tipo: "text/html", tamano: blob.size, subido_por: "Portal (auto)"
+  });
 }
 
 async function renderAdjuntos(fid) {
@@ -420,8 +479,16 @@ function tarjetas(lista, modo) {
 
 // ---------- vistas ----------
 function buscadorIncorporar() {
-  return `<section class="panel" style="margin-top:24px"><h2>¿Una factura de la obra no entró sola?</h2>
-    <p class="meta" style="margin:0">Pasa cuando el PDF no trae la UOP y el proveedor no tiene obra habitual. Buscala e incorporala al circuito.</p>
+  return `<section class="panel" style="margin-top:24px">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+      <h2>Sincronizar con Xubio</h2>
+      <button class="btn prim" data-a="sync-xubio" style="min-height:40px">Traer comprobantes nuevos de Xubio</button>
+    </div>
+    <p class="meta" style="margin:0">Trae los comprobantes de compra de Xubio (incluyendo los que llegan de ARCA) y los agrega al portal si no existen.</p>
+    <div id="sync-resultado"></div>
+  </section>
+  <section class="panel" style="margin-top:12px"><h2>Buscar factura fuera del circuito</h2>
+    <p class="meta" style="margin:0">Si una factura no entró sola, buscala e incorporala al circuito.</p>
     <form data-f="buscar" class="fila" style="align-items:flex-end">
       <div class="campo"><label for="b-txt">Número, CUIT o proveedor</label><input id="b-txt" name="texto" required></div>
       <button class="btn" type="submit">Buscar</button>
@@ -489,7 +556,13 @@ async function vistaLista(flujo, titulo, sub, modo) {
 }
 
 async function vistaCircuito() {
-  const { data, error } = await sb.from("facturas").select(CAMPOS).not("flujo", "is", null).order("actualizado_en", { ascending: false }).limit(300);
+  let q = sb.from("facturas").select(CAMPOS).not("flujo", "is", null);
+  const fp = S.filtroCircuito ?? {};
+  if (fp.flujo) q = q.eq("flujo", fp.flujo);
+  if (fp.proveedor) q = q.ilike("proveedor_nombre", "%" + fp.proveedor + "%");
+  if (fp.desde) q = q.gte("fecha_emision", fp.desde);
+  if (fp.hasta) q = q.lte("fecha_emision", fp.hasta);
+  const { data, error } = await q.order("actualizado_en", { ascending: false }).limit(300);
   if (error) throw error;
   const cuenta = {};
   (data ?? []).forEach((f) => (cuenta[f.flujo] = (cuenta[f.flujo] ?? 0) + 1));
@@ -498,7 +571,17 @@ async function vistaCircuito() {
   const filas = (data ?? []).map((f) => `<tr><td><div class="prov">${esc(f.proveedor_nombre)}</div><div class="meta">${esc(f.numero_comprobante)}</div></td>
     <td>${fecha(f.fecha_emision)}</td><td class="n">${pesos(f.monto, f.moneda)}</td><td>${f.uop_asignada ?? "—"}</td><td>${chip(f.flujo)}</td>
     <td class="meta">${f.xubio_transaccion_id ? "Xubio " + f.xubio_transaccion_id : ""}</td></tr>`).join("");
-  return `<h1>Todo el circuito</h1><p class="sub">Últimas 300 facturas que entraron al circuito nuevo.</p>
+  const fp2 = S.filtroCircuito ?? {};
+  const estadoOpts = Object.keys(ESTADOS).map(k => `<option value="${k}" ${fp2.flujo === k ? "selected" : ""}>${ESTADOS[k][0]}</option>`).join("");
+  return `<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px"><h1>Todo el circuito</h1><button class="btn" data-a="exportar-excel" style="min-height:36px">Exportar a Excel</button></div><p class="sub">Últimas 300 facturas que entraron al circuito nuevo.</p>
+    <form data-f="filtro-circuito" class="fila" style="align-items:flex-end;margin-bottom:16px">
+      <div class="campo" style="flex:0 1 180px"><label for="fc-estado">Estado</label><select id="fc-estado" name="flujo"><option value="">Todos</option>${estadoOpts}</select></div>
+      <div class="campo" style="flex:0 1 200px"><label for="fc-prov">Proveedor</label><input id="fc-prov" name="proveedor" placeholder="Nombre..." value="${esc(fp2.proveedor ?? "")}"></div>
+      <div class="campo" style="flex:0 1 150px"><label for="fc-desde">Desde</label><input id="fc-desde" name="desde" type="date" value="${fp2.desde ?? ""}"></div>
+      <div class="campo" style="flex:0 1 150px"><label for="fc-hasta">Hasta</label><input id="fc-hasta" name="hasta" type="date" value="${fp2.hasta ?? ""}"></div>
+      <button class="btn prim" type="submit">Filtrar</button>
+      <button class="btn" type="button" data-a="limpiar-filtro">Limpiar</button>
+    </form>
     <div class="fila" style="margin-bottom:20px">${resumenEstados || ""}</div>
     ${filas ? `<div class="tabla" style="background:#fff"><table><thead><tr><th>Proveedor</th><th>Emisión</th><th class="n">Total</th><th>UOP</th><th>Estado</th><th>Xubio</th></tr></thead><tbody>${filas}</tbody></table></div>`
       : `<div class="vacio">Todavía no entró ninguna factura al circuito. Se activa desde la configuración de Xubio.</div>`}`;
@@ -634,10 +717,19 @@ app.addEventListener("click", async (e) => {
   }
   const id = b.dataset.id;
   if (a === "salir") { await sb.auth.signOut(); S.vista = null; return pantallaIngreso(); }
+  if (a === "cambiar-pass") {
+    const nueva = prompt("Escrib\u00ed tu nueva contrase\u00f1a (m\u00ednimo 6 caracteres):");
+    if (!nueva) return;
+    if (nueva.length < 6) return avisar("La contrase\u00f1a tiene que tener al menos 6 caracteres.", true);
+    const { error } = await sb.auth.updateUser({ password: nueva });
+    return error ? avisar(error.message, true) : avisar("Contrase\u00f1a actualizada.");
+  }
   if (a === "vista") { S.vista = b.dataset.v; return mostrar(); }
 
   if (a === "aprobar") return ejecutar(b, async () => {
     const nuevo = await rpc("aprobar_factura", { p_factura: id, p_comentario: comentario(id) || null });
+    // Generar comprobante de aprobación PDF
+    try { await generarComprobanteAprobacion(id); } catch (e) { console.warn("No se pudo generar comprobante:", e); }
     if (nuevo === "lista_xubio") { avisar("Aprobada. Se está enviando a Xubio."); procesarCola(); }
     else if (nuevo === "pendiente_segunda_firma") avisar("Aprobada. Supera el umbral: pasa a segunda firma.");
     else avisar("Aprobada. Contaduría la revisa antes de enviarla a Xubio.");
@@ -662,8 +754,32 @@ app.addEventListener("click", async (e) => {
     if (!c) { avisar("Indicá el motivo.", true); return; }
     return ejecutar(b, async () => { await rpc("sacar_del_circuito", { p_factura: id, p_comentario: c }); avisar("Devuelta al circuito actual."); await mostrar(); });
   }
+  if (a === "limpiar-filtro") { S.filtroCircuito = {}; return mostrar(); }
   if (a === "incorporar") return ejecutar(b, async () => {
     await rpc("incorporar_al_circuito", { p_factura: id }); avisar("Incorporada. Ya está para asignar."); await mostrar();
+  });
+  if (a === "exportar-excel") {
+    const { data: exp } = await sb.from("facturas").select("proveedor_nombre,cuit,tipo_comprobante,numero_comprobante,moneda,monto,fecha_emision,fecha_vencimiento,flujo,uop_asignada,xubio_transaccion_id,creado_en,actualizado_en").not("flujo", "is", null).order("actualizado_en", { ascending: false }).limit(1000);
+    if (!exp?.length) return avisar("No hay facturas para exportar.", true);
+    const heads = ["Proveedor","CUIT","Tipo","Comprobante","Moneda","Monto","Emisi\u00f3n","Vto","Estado","UOP","Xubio TX","Ingreso","Actualizado"];
+    const rows = (exp).map(r => [r.proveedor_nombre,r.cuit,r.tipo_comprobante,r.numero_comprobante,r.moneda,r.monto,r.fecha_emision,r.fecha_vencimiento,(ESTADOS[r.flujo]??[r.flujo])[0],r.uop_asignada,r.xubio_transaccion_id,r.creado_en?.slice(0,16),r.actualizado_en?.slice(0,16)]);
+    const csv = [heads, ...rows].map(r => r.map(c => `"${String(c??"").replace(/"/g,"\"\"")}"` ).join(",")).join("\n");
+    const bom = "\uFEFF";
+    const blob = new Blob([bom + csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a"); link.href = url; link.download = `facturas_${new Date().toISOString().slice(0,10)}.csv`; link.click();
+    URL.revokeObjectURL(url);
+    return avisar("Exportado " + exp.length + " facturas.");
+  }
+  if (a === "sync-xubio") return ejecutar(b, async () => {
+    const zona = document.getElementById("sync-resultado");
+    if (zona) zona.innerHTML = '<p class="meta">Sincronizando con Xubio...</p>';
+    const { data, error } = await sb.functions.invoke("xubio-sync-comprobantes", { body: {} });
+    if (error || !data?.ok) throw new Error(data?.error ?? "Error al sincronizar");
+    const msg = data.creadas > 0 ? `Se importaron ${data.creadas} comprobante${data.creadas > 1 ? "s" : ""} nuevo${data.creadas > 1 ? "s" : ""} de Xubio.` : `No hay comprobantes nuevos (${data.comprobantes_xubio} en Xubio, todos ya están en el portal).`;
+    if (zona) zona.innerHTML = `<div class="aviso ${data.creadas > 0 ? 'ok' : 'azul'}" style="background:${data.creadas > 0 ? 'var(--ok-f)' : 'var(--azul-f)'};color:${data.creadas > 0 ? 'var(--ok-t)' : 'var(--azul-t)'}">${msg}</div>`;
+    avisar(msg);
+    if (data.creadas > 0) await mostrar();
   });
   if (a === "circuito-obra") return ejecutar(b, async () => {
     const { error } = await sb.from("obras").update({ en_circuito: b.dataset.on === "1" }).eq("uop", Number(b.dataset.uop));
@@ -705,6 +821,10 @@ app.addEventListener("submit", async (e) => {
     if (su?.user?.identities?.length === 0) return avisar("Ya existe una cuenta con ese mail. Usá el formulario de arriba para entrar.", true);
     return null;
   }
+  if (f.dataset.f === "filtro-circuito") {
+    S.filtroCircuito = { flujo: v.flujo || null, proveedor: v.proveedor || null, desde: v.desde || null, hasta: v.hasta || null };
+    return mostrar();
+  }
   if (f.dataset.f === "buscar") {
     const t = String(v.texto ?? "").trim();
     if (t.length < 3) return avisar("Escribí al menos 3 caracteres.", true);
@@ -724,7 +844,7 @@ app.addEventListener("submit", async (e) => {
   });
   if (f.dataset.f === "persona") return ejecutar(btn, async () => {
     const { error } = await sb.from("perfiles").insert({ email: v.email.trim().toLowerCase(), nombre: v.nombre.trim(), es_contaduria: v.conta === "si" });
-    if (error) throw error; avisar("Persona dada de alta. Ya puede ingresar con Microsoft."); await mostrar();
+    if (error) throw error; avisar("Persona dada de alta. Ya puede crear su cuenta en el portal."); await mostrar();
   });
   if (f.dataset.f === "acceso") return ejecutar(btn, async () => {
     const { error } = await sb.from("obra_aprobadores").insert({ uop: Number(v.uop), email: v.email, rol: v.rol, vigente_hasta: v.hasta || null });
