@@ -632,7 +632,7 @@ app.addEventListener("click", async (e) => {
     await recargarAdjuntos(fid);
     return;
   }
-  const a = b.dataset.a, id = b.dataset.id;
+  const id = b.dataset.id;
   if (a === "salir") { await sb.auth.signOut(); S.vista = null; return pantallaIngreso(); }
   if (a === "vista") { S.vista = b.dataset.v; return mostrar(); }
 
